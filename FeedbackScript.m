@@ -11,8 +11,9 @@
 Fs = 256; % Sampling frequency: do not change!
 
 %% Setting feedback parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-RECsettings.channels = 3;   % channel used for feedback
-recTime = 10;               % duration of recording in seconds
+RECsettings.channels = 1:8; % channels which are recorded
+RECsettings.fbchan = 3;      % channel used for feedback
+recTime = 20;               % duration of recording in seconds
 feedbackTime = 2;           % time window used for feedback
 band1.range = [8 15];       % range of frequency band 1
 band1.name  = 'alpha';      % name  of frequency band 1
@@ -48,7 +49,7 @@ if ~exist('ai','var')
         errordlg('Still unable to connect with recording hardware, quitting this session')
         return
     else
-        fprintf('Device found, setting up connection')
+        fprintf('Device found, setting up connection\n')
         % when hardware has been found, initiate recording session
         ai = analoginput('gmlplusdaq',daqinfo.InstalledBoardIds{1});
         
@@ -60,7 +61,7 @@ if ~exist('ai','var')
 else
     flushdata(ai)
 end
-fprintf('established connection with %s on comport %s \n', ...
+fprintf('Connection established with %s on comport %s \n', ...
     daqinfo.BoardNames{1}, daqinfo.InstalledBoardIds{1})
 %%
 try
@@ -80,7 +81,7 @@ try
     recdata = [];
     band1.power = [];
     band2.power = [];
-    
+    ratio = [];
     %% Set recording parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Set recording duration 
     set(ai,'SamplesPerTrigger',recSamples);
@@ -96,26 +97,27 @@ try
  
         data = peekdata(ai, ai.SamplesAcquired)*10e6;
         
-        set(plots.time, 'XData',(1:length(data))/Fs,'YData',data);
+        set(plots.time, 'XData',(1:length(data))/Fs,'YData',data(:,RECsettings.fbchan));
         [meanPxx, F] = pwelch(data,feedbackSamples,round(feedbackSamples/2),specplotrange,Fs);
         
         data = peekdata(ai, feedbackSamples)*10e6;
         [Pxx, F] = pwelch(data,feedbackSamples,round(feedbackSamples/2),specplotrange,Fs);
-        set(plots.spec,'XData',F,'YData',Pxx);
-        set(plots.meanspec,'XData',F,'YData',meanPxx);
+        set(plots.spec,'XData',F,'YData',Pxx(:,RECsettings.fbchan));
+        set(plots.meanspec,'XData',F,'YData',meanPxx(:,RECsettings.fbchan));
         
-        band1.power = [band1.power, bandpower(data,Fs, band1.range)];
-        band2.power = [band2.power, bandpower(data,Fs, band2.range)];
+        band1.power = [band1.power; bandpower(data,Fs, band1.range)];
+        band2.power = [band2.power; bandpower(data,Fs, band2.range)];
         
-        set(plots.band1,    'XData',(1:length(band1.power))/Fs,'YData',band1.power);
-        set(plots.band1mean,'XData',(1:length(band2.power))/Fs,'YData',repmat(mean(band1.power),1,length(band1.power)));
+        set(plots.band1,    'XData',(1:size(band1.power,1))/Fs,'YData',band1.power(:,RECsettings.fbchan));
+        set(plots.band1mean,'XData',(1:size(band1.power,1))/Fs,'YData',repmat(mean(band1.power(:,RECsettings.fbchan)),1,size(band1.power,1)));
         drawnow;
         
-        set(plots.band2,    'XData',(1:length(band2.power))/Fs,'YData',band2.power);
-        set(plots.band2mean,'XData',(1:length(band2.power))/Fs,'YData',repmat(mean(band2.power),1,length(band2.power)));
+        set(plots.band2,    'XData',(1:size(band2.power,1))/Fs,'YData',band2.power(:,RECsettings.fbchan));
+        set(plots.band2mean,'XData',(1:size(band2.power,1))/Fs,'YData',repmat(mean(band2.power(:,RECsettings.fbchan)),1,size(band2.power,1)));
         
-        set(plots.bandratio,    'XData',(1:length(band2.power))/Fs,'YData',band1.power./band2.power);
-        set(plots.bandratiomean,'XData',(1:length(band2.power))/Fs,'YData',repmat(mean(band1.power./band2.power),1,length(band1.power)));
+        ratio = band1.power./band2.power;
+        set(plots.bandratio,    'XData',(1:size(ratio,1))/Fs,'YData',ratio(:,RECsettings.fbchan));
+        set(plots.bandratiomean,'XData',(1:size(ratio,1))/Fs,'YData',repmat(mean(ratio(:,RECsettings.fbchan)),1,size(ratio,1)));
         drawnow;
         if ~ishghandle(mainFig)
             stoprec = 1;
@@ -137,7 +139,7 @@ end
 feedback.data = getdata(ai, ai.SamplesAcquired);
 feedback.power.band1 = band1.power;
 feedback.power.band2 = band2.power;
-feedback.ratio = bandratio;
+feedback.power.ratio = ratio;
 answer = questdlg('Save data?','save','Yes','No','Yes');
 if strcmp(answer, 'Yes')
     savedata = 1;
@@ -145,7 +147,7 @@ else
     savedata = 0;
 end
 if savedata
-    uisave('feedback','feedbackdata')
+    uisave('feedback',[cd '\Data\feedbackdata'])
 end
 % save data
 toc
