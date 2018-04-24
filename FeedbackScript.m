@@ -134,7 +134,10 @@ catch ME
     end
 end
 
-data = getdata(ai, ai.SamplesAcquired);
+feedback.data = getdata(ai, ai.SamplesAcquired);
+feedback.power.band1 = band1.power;
+feedback.power.band2 = band2.power;
+feedback.ratio = bandratio;
 answer = questdlg('Save data?','save','Yes','No','Yes');
 if strcmp(answer, 'Yes')
     savedata = 1;
@@ -142,7 +145,7 @@ else
     savedata = 0;
 end
 if savedata
-    uisave('data','feedbackdata')
+    uisave('feedback','feedbackdata')
 end
 % save data
 toc
