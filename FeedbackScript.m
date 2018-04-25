@@ -11,18 +11,20 @@
 Fs = 256; % Sampling frequency: do not change!
 
 %% Setting feedback parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-RECsettings.channels = 1:8; % channels which are recorded
-RECsettings.fbchan = 3;      % channel used for feedback
-recTime = 20;               % duration of recording in seconds
-feedbackTime = 2;           % time window used for feedback
+REC.channels = 1:8;         % channels which are recorded
+REC.fbchan = 3;             % channel used for feedback
+REC.time = 20;              % duration of recording in seconds
+REC.fbTime = 2;             % time window used for feedback
 band1.range = [8 15];       % range of frequency band 1
 band1.name  = 'alpha';      % name  of frequency band 1
 band2.range = [20 30];      % range of frequency band 2
 band2.name  = 'beta';       % name  of frequency band 2
 specplotrange = 5:60;       % frequency range displayed in power spectrum
 
-recSamples = recTime * Fs; % duration of recording in samples
-feedbackSamples = round(feedbackTime*Fs); % sample window used for feedback
+%%
+REC.Fs = Fs;
+REC.samples = REC.time * Fs; % duration of recording in samples
+REC.fbSamples = round(REC.fbTime*Fs); % sample window used for feedback
 
 %% Preparing recording hardware %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if ~exist('ai','var')    
@@ -54,7 +56,7 @@ if ~exist('ai','var')
         ai = analoginput('gmlplusdaq',daqinfo.InstalledBoardIds{1});
         
         % add channels to record
-        for ichan = 1:length(RECsettings.channels)
+        for ichan = 1:length(REC.channels)
             addchannel(ai,ichan);
         end
     end
@@ -84,7 +86,7 @@ try
     ratio = [];
     %% Set recording parameters %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Set recording duration 
-    set(ai,'SamplesPerTrigger',recSamples);
+    set(ai,'SamplesPerTrigger',REC.samples);
     stoprec = 0;
     % Start recording
     start(ai); tic;
@@ -93,31 +95,31 @@ try
     while ai.SamplesAcquired <= feedbackSamples && stoprec == 0; end
     fprintf('Running... \n')
     % Start recording until time elapsed or figure closed
-    while stoprec == 0  && ai.SamplesAcquired < recSamples
+    while stoprec == 0  && ai.SamplesAcquired < REC.samples
  
         data = peekdata(ai, ai.SamplesAcquired)*10e6;
         
-        set(plots.time, 'XData',(1:length(data))/Fs,'YData',data(:,RECsettings.fbchan));
+        set(plots.time, 'XData',(1:length(data))/Fs,'YData',data(:,REC.fbchan));
         [meanPxx, F] = pwelch(data,feedbackSamples,round(feedbackSamples/2),specplotrange,Fs);
         
         data = peekdata(ai, feedbackSamples)*10e6;
         [Pxx, F] = pwelch(data,feedbackSamples,round(feedbackSamples/2),specplotrange,Fs);
-        set(plots.spec,'XData',F,'YData',Pxx(:,RECsettings.fbchan));
-        set(plots.meanspec,'XData',F,'YData',meanPxx(:,RECsettings.fbchan));
+        set(plots.spec,'XData',F,'YData',Pxx(:,REC.fbchan));
+        set(plots.meanspec,'XData',F,'YData',meanPxx(:,REC.fbchan));
         
         band1.power = [band1.power; bandpower(data,Fs, band1.range)];
         band2.power = [band2.power; bandpower(data,Fs, band2.range)];
         
-        set(plots.band1,    'XData',(1:size(band1.power,1))/Fs,'YData',band1.power(:,RECsettings.fbchan));
-        set(plots.band1mean,'XData',(1:size(band1.power,1))/Fs,'YData',repmat(mean(band1.power(:,RECsettings.fbchan)),1,size(band1.power,1)));
+        set(plots.band1,    'XData',(1:size(band1.power,1))/Fs,'YData',band1.power(:,REC.fbchan));
+        set(plots.band1mean,'XData',(1:size(band1.power,1))/Fs,'YData',repmat(mean(band1.power(:,REC.fbchan)),1,size(band1.power,1)));
         drawnow;
         
-        set(plots.band2,    'XData',(1:size(band2.power,1))/Fs,'YData',band2.power(:,RECsettings.fbchan));
-        set(plots.band2mean,'XData',(1:size(band2.power,1))/Fs,'YData',repmat(mean(band2.power(:,RECsettings.fbchan)),1,size(band2.power,1)));
+        set(plots.band2,    'XData',(1:size(band2.power,1))/Fs,'YData',band2.power(:,REC.fbchan));
+        set(plots.band2mean,'XData',(1:size(band2.power,1))/Fs,'YData',repmat(mean(band2.power(:,REC.fbchan)),1,size(band2.power,1)));
         
         ratio = band1.power./band2.power;
-        set(plots.bandratio,    'XData',(1:size(ratio,1))/Fs,'YData',ratio(:,RECsettings.fbchan));
-        set(plots.bandratiomean,'XData',(1:size(ratio,1))/Fs,'YData',repmat(mean(ratio(:,RECsettings.fbchan)),1,size(ratio,1)));
+        set(plots.bandratio,    'XData',(1:size(ratio,1))/Fs,'YData',ratio(:,REC.fbchan));
+        set(plots.bandratiomean,'XData',(1:size(ratio,1))/Fs,'YData',repmat(mean(ratio(:,REC.fbchan)),1,size(ratio,1)));
         drawnow;
         if ~ishghandle(mainFig)
             stoprec = 1;
@@ -131,15 +133,20 @@ catch ME
         fprintf('session manually stopped \n')
     else
         stop(ai)
+        fprintf('Session stopped unexpectedly.. \n')
         errordlg('Some unexpected error ocurred, see command window for more details')
         rethrow(ME)
     end
 end
 
-feedback.data = getdata(ai, ai.SamplesAcquired);
-feedback.power.band1 = band1.power;
-feedback.power.band2 = band2.power;
-feedback.power.ratio = ratio;
+%% create structure with all recording settings and data to save
+feedback.REC            = REC;
+feedback.data           = getdata(ai, ai.SamplesAcquired);
+feedback.power.band1    = band1.power;
+feedback.power.band2    = band2.power;
+feedback.power.ratio    = ratio;
+
+%% Ask user whether to save data or not
 answer = questdlg('Save data?','save','Yes','No','Yes');
 if strcmp(answer, 'Yes')
     savedata = 1;
@@ -148,7 +155,7 @@ else
 end
 if savedata
     uisave('feedback',[cd '\Data\feedbackdata'])
+    fprintf('Data saved \n')
 end
-% save data
-toc
+
 fprintf('Done!\n')
