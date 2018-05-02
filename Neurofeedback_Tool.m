@@ -241,6 +241,9 @@ try
     REC.channels    = recordingChannels;
     % Get recording settings from GUI
     REC             = getSettings(REC, handles);   
+    REC.threshold.abs   = 250; 
+    REC.threshold.peak  = 200;
+    REC.threshold.SNR   = 1;
     %% If no recording hardware is connected try to connect
     if ~isfield(handles, 'ai')
         handles.ai = getMOBIlab(REC);
@@ -315,8 +318,9 @@ try
             waitbar(ai.SamplesAcquired/REC.fbSamples ,hwait);
         end
         fbdata = peekdata(ai, REC.fbSamples)*1e6;
-        while (ai.SamplesAcquired < REC.samples) && (any(abs(fbdata(:,REC.fbChan)) > 250) ... % absolute value over 250uV
-                    || any(abs(diff(fbdata(:,REC.fbChan))) > 200)) % absolute change over 200 uV
+        while (ai.SamplesAcquired < REC.samples) ...
+            && (any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs) ... % check absolute threshold
+                    || any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak)) % check peak-to-peak threshold
                 fbdata = peekdata(ai, REC.fbSamples)*1e6;
                 waitbar(mod(ai.SamplesAcquired,REC.fbSamples)/REC.Fs, hwait, 'waiting for good signal') 
         end
@@ -337,8 +341,8 @@ try
             
             minPow = min(ratio(:,REC.fbChan));
             maxPow = max(ratio(:,REC.fbChan));
-            if any(abs(fbdata(:,REC.fbChan)) > 250) ... % absolute value over 250uV
-                    || any(abs(diff(fbdata(:,REC.fbChan))) > 200) % absolute change over 200 uV
+            if any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs) ... % check absolute threshold
+                    || any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak) % check peak-to-peak threshold
                 relPow =[relPow relPow(end)];
             else
                 relPow = [relPow ((ratio(end,REC.fbChan) -minPow) / (maxPow - minPow))];
