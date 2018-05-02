@@ -1,6 +1,6 @@
 function ai = getMOBIlab(recSettings)
 waith = waitbar(0 , 'searching for EEG hardware');   
-if ~exist('ai','var') 
+% if ~exist('ai','var') 
     ai = [];
     % Detect & connect recodrding hardware
     waitbar(.1, waith, 'searching for EEG hardware');
@@ -18,7 +18,7 @@ if ~exist('ai','var')
         try
             daqreset
             daqinfo = daqhwinfo('gmlplusdaq');
-        catch
+        catch ME
             delete(waith);
             errordlg('Some unexpected error ocurred, check whether the hardware is connected correctly')
             rethrow(ME)
@@ -39,10 +39,10 @@ if ~exist('ai','var')
             addchannel(ai,ichan);
         end
     end
-else
-    waitbar(.9,waith,'clearing possible data')
-    flushdata(ai)
-end
+% else
+%     waitbar(.9,waith,'clearing possible data')
+%     flushdata(ai)
+% end
 waitbar(1,waith,'Done!')
 fprintf('Connection established with %s on comport %s \n', ...
     daqinfo.BoardNames{1}, daqinfo.InstalledBoardIds{1})

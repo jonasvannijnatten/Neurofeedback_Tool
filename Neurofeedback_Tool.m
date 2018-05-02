@@ -238,7 +238,7 @@ try
     clc
     % set Fs and number of channels
     Fs = 256;
-    recordingChannels = [1:8];
+    recordingChannels = 1:8;
     REC.Fs          = Fs;
     REC.channels    = recordingChannels;
     % Get recording settings from GUI
@@ -273,7 +273,7 @@ try
     if isfield(handles,'song')
         song = handles.song;
     else
-        fprintf('no song selected to play... \n')
+        fprintf('No song selected to play... \n')
     end
     %%
     guidata(hObject, handles)
@@ -310,7 +310,7 @@ try
         while stoprec == 0  && (ai.SamplesAcquired < REC.samples)
             REC = getSettings(REC, handles);
             alldata = peekdata(ai, ai.SamplesAcquired)*1e6;
-            [meanPxx, F] = pwelch(bsxfun(@minus,alldata,mean(alldata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
+            meanPxx = pwelch(bsxfun(@minus,alldata,mean(alldata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
             fbdata = peekdata(ai, REC.fbSamples)*1e6;
             [Pxx, F] = pwelch(bsxfun(@minus,fbdata,mean(fbdata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
             band1.power = [band1.power; bandpower(fbdata,Fs, band1.range)];
@@ -345,6 +345,7 @@ try
         if isfield(handles,'song') && handles.song.isplaying;  stop(song);     end
         if player;   stop(player);   end
         fprintf('Session ended \n')
+        fprintf('Average loop duration was %2.4f seconds \n',mean(diff(looptime)))
     catch ME
         W = who;
         putvar(W{:})
@@ -352,7 +353,7 @@ try
             stop(ai); fprintf('recording stopped \n')
             if isfield(handles,'song') && handles.song.isplaying;     stop(song);     end
             if player;   stop(player);   end
-            fprintf('session manually stopped \n')
+            fprintf('Session manually stopped \n')
         else
             stop(ai); fprintf('recording stopped \n')
             fprintf('Session stopped unexpectedly.. \n')
