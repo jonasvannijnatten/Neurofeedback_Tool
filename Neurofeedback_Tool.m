@@ -54,7 +54,11 @@ function Neurofeedback_Tool_OpeningFcn(hObject, eventdata, handles, varargin)
 
 % Choose default command line output for Neurofeedback_Tool
 handles.output = hObject;
-addpath([cd '\Functions'])
+if ~exist([cd filesep 'Data'],'dir')
+    mkdir('Data')
+end
+addpath([cd filesep 'Data'])
+addpath([cd filesep 'Functions'])
 % Update handles structure
 guidata(hObject, handles);
 
@@ -394,7 +398,7 @@ try
         if any(alldata)
             answer = questdlg('Save data?','save','Yes','No','Yes');
             if strcmp(answer, 'Yes')
-                uisave('nfb',[cd '\Data\feedbackdata'])
+                uisave('nfb',[cd filesep 'Data' filesep 'feedbackdata.mat'])
                 fprintf('Data saved \n')
             end
         end
