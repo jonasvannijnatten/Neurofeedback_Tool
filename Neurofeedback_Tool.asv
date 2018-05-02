@@ -60,7 +60,31 @@ end
 addpath([cd filesep 'Data'])
 addpath([cd filesep 'Functions'])
 REC = getSettings([], handles);
-[~, handles] = initiatePlots(handles,REC);
+    plots.time = plot(handles.plotTime, 0); handles.plotTime.Title.String = 'EEG signal';
+    
+    hold(handles.plotSpec, 'on')
+    plots.spec = plot(handles.plotSpec, 0);
+    plots.meanspec = plot(handles.plotSpec, 0);
+    handles.plotSpec.Title.String = 'Power spectrum';
+    hold(handles.plotSpec, 'off')
+    
+    hold(handles.plotBand1, 'on')
+    plots.band1 = plot(handles.plotBand1  ,0); plots.band1mean = plot(handles.plotBand1, 0);
+    handles.plotBand1.Title.String = REC.band1name;
+    hold(handles.plotBand1, 'off')
+    
+    hold(handles.plotBand2, 'on')
+    plots.band2 = plot(handles.plotBand2 ,0); plots.band2mean = plot(handles.plotBand2, 0);
+    handles.plotBand2.Title.String = REC.band2name;
+    hold(handles.plotBand2, 'off')
+    
+    hold(handles.plotBandRatio, 'on')
+    plots.ratio = plot(handles.plotBandRatio, 0); plots.ratiomean = plot(handles.plotBandRatio, 0);
+    handles.plotBandRatio.Title.String = [REC.band1name '/' REC.band2name ' ratio' ];
+    hold(handles.plotBandRatio, 'off')
+    
+    plots.output = plot(handles.outputSignal, 0);
+    handles.outputSignal.Title.String = 'Output Signal';
 
 guidata(hObject, handles);
 
@@ -242,8 +266,8 @@ try
     REC.Fs          = Fs;
     REC.channels    = recordingChannels;
     % Get recording settings from GUI
-    REC             = getSettings(REC, handles);
-    REC.threshold.abs   = 250;
+    REC             = getSettings(REC, handles);   
+    REC.threshold.abs   = 250; 
     REC.threshold.peak  = 200;
     REC.threshold.SNR   = 1;
     %% If no recording hardware is connected try to connect
@@ -271,7 +295,7 @@ try
     
     %% get song
     if isfield(handles,'song')
-        song = handles.song;
+        song = handles.song; 
     else
         fprintf('no song selected to play... \n')
     end
@@ -282,8 +306,32 @@ try
     for i = 1:length(allaxes)
         cla(allaxes(i))
     end
-    [plots, handles] = initiatePlots(handles,REC);
-
+    
+    plots.time = plot(handles.plotTime, 0); handles.plotTime.Title.String = 'EEG signal';
+    
+    hold(handles.plotSpec, 'on')
+    plots.spec = plot(handles.plotSpec, 0);
+    plots.meanspec = plot(handles.plotSpec, 0);
+    handles.plotSpec.Title.String = 'Power spectrum';
+    hold(handles.plotSpec, 'off')
+    
+    hold(handles.plotBand1, 'on')
+    plots.band1 = plot(handles.plotBand1  ,0); plots.band1mean = plot(handles.plotBand1, 0);
+    handles.plotBand1.Title.String = REC.band1name;
+    hold(handles.plotBand1, 'off')
+    
+    hold(handles.plotBand2, 'on')
+    plots.band2 = plot(handles.plotBand2 ,0); plots.band2mean = plot(handles.plotBand2, 0);
+    handles.plotBand2.Title.String = REC.band2name;
+    hold(handles.plotBand2, 'off')
+    
+    hold(handles.plotBandRatio, 'on')
+    plots.ratio = plot(handles.plotBandRatio, 0); plots.ratiomean = plot(handles.plotBandRatio, 0);
+    handles.plotBandRatio.Title.String = [REC.band1name '/' REC.band2name ' ratio' ];
+    hold(handles.plotBandRatio, 'off')
+    
+    plots.output = plot(handles.outputSignal, 0);
+    handles.outputSignal.Title.String = 'Output Signal';
     %% start session
     try
         set(ai,'SamplesPerTrigger',REC.samples);
@@ -297,10 +345,10 @@ try
         end
         fbdata = peekdata(ai, REC.fbSamples)*1e6;
         while (ai.SamplesAcquired < REC.samples) ...
-                && (any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs) ... % check absolute threshold
-                || any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak)) % check peak-to-peak threshold
-            fbdata = peekdata(ai, REC.fbSamples)*1e6;
-            waitbar(mod(ai.SamplesAcquired,REC.fbSamples)/REC.Fs, hwait, 'waiting for good signal')
+            && (any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs) ... % check absolute threshold
+                    || any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak)) % check peak-to-peak threshold
+                fbdata = peekdata(ai, REC.fbSamples)*1e6;
+                waitbar(mod(ai.SamplesAcquired,REC.fbSamples)/REC.Fs, hwait, 'waiting for good signal') 
         end
         delete(hwait);
         fprintf('Running... \n')
@@ -348,7 +396,7 @@ try
     catch ME
         W = who;
         putvar(W{:})
-        if stoprec
+        if stoprec            
             stop(ai); fprintf('recording stopped \n')
             if isfield(handles,'song') && handles.song.isplaying;     stop(song);     end
             if player;   stop(player);   end
@@ -412,10 +460,10 @@ recSettings.band1name       = freqband1Name_Callback([], [], handles);
 recSettings.band2range      = freqband2Range_Callback([], [], handles);
 recSettings.band2name       = freqband2Name_Callback([], [], handles);
 % translate recording and feedback time-windows to samples
-if isfield(recSettings,'Fs')
-    recSettings.samples         = recSettings.time * recSettings.Fs; % duration of recording in samples
-    recSettings.fbSamples       = round(recSettings.fbTime*recSettings.Fs); % sample window used for feedback
-end
+if isfield(recSettings,'Fs)
+recSettings.samples         = recSettings.time * recSettings.Fs; % duration of recording in samples
+recSettings.fbSamples       = round(recSettings.fbTime*recSettings.Fs); % sample window used for feedback
+
 
 % --- Executes on button press in loadSong.
 function loadSong_Callback(hObject, eventdata, handles)
