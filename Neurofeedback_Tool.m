@@ -59,8 +59,8 @@ if ~exist([cd filesep 'Data'],'dir')
 end
 addpath([cd filesep 'Data'])
 addpath([cd filesep 'Functions'])
-REC = getSettings([], handles);
-[~, handles] = initiatePlots(handles,REC);
+handles = getSettings(handles);
+[~, handles] = initiatePlots(handles);
 
 guidata(hObject, handles);
 
@@ -235,20 +235,10 @@ global stoprec
 stoprec = 0;
 try
     handles.startSession.Enable = 'off';
-    clc
-    % set Fs and number of channels
-    Fs = 256;
-    recordingChannels = 1:8;
-    REC.Fs          = Fs;
-    REC.channels    = recordingChannels;
-    % Get recording settings from GUI
-    REC             = getSettings(REC, handles);
-    REC.threshold.abs   = 250;
-    REC.threshold.peak  = 200;
-    REC.threshold.SNR   = 1;
+    clc    
     %% If no recording hardware is connected try to connect
     if ~isfield(handles, 'ai')
-        handles.ai = getMOBIlab(REC);
+        [handles.ai, handles.REC] = getMOBIlab(handles.REC);
         guidata(hObject, handles);
     end
     ai = handles.ai;
@@ -256,18 +246,31 @@ try
         fprintf('No recording hardware detected, no session started \n')
         return
     end
+    
+    %% Get recording settings from GUI
+    handles = getSettings(handles);
+    Fs  = handles.REC.Fs;
+    handles.REC.threshold.abs   = 250;
+    handles.REC.threshold.peak  = 200;
+    handles.REC.threshold.SNR   = 1;
+    REC = handles.REC;
+    guidata(hObject, handles);
+    
     %% initiate variables
     alldata     = [];
     band1.power = [];
     band2.power = [];
+    band1.mean  = [];
+    band2.mean  = [];
     band1.range = REC.band1range;
     band2.range = REC.band2range;
-    ratio = [];
-    minPow = [];
-    maxPow = [];
-    relPow = [];
+    ratio   = [];
+    ratioMean = [];
+    minPow  = [];
+    maxPow  = [];
+    relPow  = [];
     looptime = [];
-    player = 0;
+    player  = 0;
     
     %% get song
     if isfield(handles,'song')
@@ -282,7 +285,7 @@ try
     for i = 1:length(allaxes)
         cla(allaxes(i))
     end
-    [plots, handles] = initiatePlots(handles,REC);
+    [plots, handles] = initiatePlots(handles);
 
     %% start session
     try
@@ -293,12 +296,15 @@ try
         fprintf('Wait for enough samples to calculate power \n')
         hwait = waitbar(0,'Getting data..');
         while ai.SamplesAcquired <= REC.fbSamples && stoprec == 0;
-            waitbar(ai.SamplesAcquired/REC.fbSamples ,hwait);
+            waitbar(mod(ai.SamplesAcquired,REC.Fs)/REC.Fs ,hwait);
         end
         fbdata = peekdata(ai, REC.fbSamples)*1e6;
-        while (ai.SamplesAcquired < REC.samples) ...
-                && (any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs) ... % check absolute threshold
-                || any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak)) % check peak-to-peak threshold
+        while (ai.SamplesAcquired < REC.samples) ... % until session ends
+                && (  ...
+                    any(any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs)) ... % check absolute threshold
+                    || ...
+                    any(any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak))... % check peak-to-peak threshold
+                    )
             fbdata = peekdata(ai, REC.fbSamples)*1e6;
             waitbar(mod(ai.SamplesAcquired,REC.fbSamples)/REC.Fs, hwait, 'waiting for good signal')
         end
@@ -307,20 +313,24 @@ try
         % Start recording until time elapsed or figure closed
         tic
         if isfield(handles,'song'); play(handles.song); end
-        while stoprec == 0  && (ai.SamplesAcquired < REC.samples)
-            REC = getSettings(REC, handles);
+        while stoprec == 0  && ai.SamplesAcquired < REC.samples && strcmp(ai.Running, 'On')
+            handles = getSettings(handles);
             alldata = peekdata(ai, ai.SamplesAcquired)*1e6;
             meanPxx = pwelch(bsxfun(@minus,alldata,mean(alldata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
             fbdata = peekdata(ai, REC.fbSamples)*1e6;
             [Pxx, F] = pwelch(bsxfun(@minus,fbdata,mean(fbdata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
             band1.power = [band1.power; bandpower(fbdata,Fs, band1.range)];
             band2.power = [band2.power; bandpower(fbdata,Fs, band2.range)];
-            ratio = band1.power./band2.power;
+            band1.mean  = [band1.mean; mean(mean(band1.power(:,REC.fbChan),1),2) ];
+            band2.mean  = [band2.mean; mean(mean(band2.power(:,REC.fbChan),1),2) ];
             
+            
+            ratio = mean(band1.power(:,REC.fbChan),2)./mean(band2.power(:,REC.fbChan),2);
+            ratioMean = [ ratioMean ; mean(ratio) ] ;
             minPow = min(ratio(:,REC.fbChan));
             maxPow = max(ratio(:,REC.fbChan));
-            if any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs) ... % check absolute threshold
-                    || any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak) % check peak-to-peak threshold
+            if any(any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs)) ... % check absolute threshold
+                    || any(any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak)) % check peak-to-peak threshold
                 relPow =[relPow relPow(end)];
             else
                 relPow = [relPow ((ratio(end,REC.fbChan) -minPow) / (maxPow - minPow))];
@@ -328,18 +338,22 @@ try
             looptime = [looptime toc];
             
             % update plots
-            set(plots.time,         'XData',(1:length(alldata))/Fs,'YData',alldata(:,REC.fbChan));
+            dispTime = 5;          % plot last x seconds of data;
+            if dispTime*Fs > size(alldata,1) ; dispTime = REC.fbTime; end
+            dispData = alldata(end-(REC.Fs*dispTime-1):end,REC.fbChan)';
+            dispData = dispData -mean(dispData);
+            set(plots.time,         'XData',(1:length(dispData))/Fs,'YData',dispData);
             set(plots.spec,         'XData',F,'YData',Pxx(:,REC.fbChan));
             set(plots.meanspec,     'XData',F,'YData',meanPxx(:,REC.fbChan));
             set(plots.band1,        'XData',looptime+REC.fbTime,'YData',band1.power(:,REC.fbChan));
-            set(plots.band1mean,    'XData',looptime+REC.fbTime,'YData',repmat(mean(band1.power(:,REC.fbChan)),1,size(band1.power,1)));
+            set(plots.band1mean,    'XData',looptime+REC.fbTime,'YData',band1.mean(:,REC.fbChan));
             set(plots.band2,        'XData',looptime+REC.fbTime,'YData',band2.power(:,REC.fbChan));
-            set(plots.band2mean,    'XData',looptime+REC.fbTime,'YData',repmat(mean(band2.power(:,REC.fbChan)),1,size(band2.power,1)));
+            set(plots.band2mean,    'XData',looptime+REC.fbTime,'YData',band2.mean(:,REC.fbChan));
             set(plots.ratio,        'XData',looptime+REC.fbTime,'YData',ratio(:,REC.fbChan));
-            set(plots.ratiomean,    'XData',looptime+REC.fbTime,'YData',repmat(mean(ratio(:,REC.fbChan)),1,size(ratio,1)));
+            set(plots.ratiomean,    'XData',looptime+REC.fbTime,'YData',ratioMean);
             set(plots.output,       'XData',looptime+REC.fbTime,'YData',relPow);
             drawnow;
-            player = playNoise(1-relPow(end), mean(diff(looptime))*1.05);
+            player = playNoise(1-relPow(end), mean(diff(looptime))*1.5);
         end
         if strcmp(ai.Running, 'On'); stop(ai); end
         if isfield(handles,'song') && handles.song.isplaying;  stop(song);     end
@@ -402,21 +416,25 @@ function stopSession_Callback(hObject, eventdata, handles)
 global stoprec
 stoprec = 1;
 
-
-function recSettings = getSettings(recSettings, handles)
-recSettings.time            = sessionDuration_Callback([], [], handles);
-recSettings.fbTime          = fbTime_Callback([], [], handles);
-recSettings.fbChan          = fbChannel_Callback([], [], handles);
-recSettings.specplotrange   = specPlotRange_Callback([], [], handles);
-recSettings.band1range      = freqband1Range_Callback([], [], handles);
-recSettings.band1name       = freqband1Name_Callback([], [], handles);
-recSettings.band2range      = freqband2Range_Callback([], [], handles);
-recSettings.band2name       = freqband2Name_Callback([], [], handles);
-% translate recording and feedback time-windows to samples
-if isfield(recSettings,'Fs')
-    recSettings.samples         = recSettings.time * recSettings.Fs; % duration of recording in samples
-    recSettings.fbSamples       = round(recSettings.fbTime*recSettings.Fs); % sample window used for feedback
+function handles = getSettings(handles)
+if isfield(handles, 'REC')
+    REC = handles.REC;
 end
+REC.time            = sessionDuration_Callback([], [], handles);
+REC.fbTime          = fbTime_Callback([], [], handles);
+REC.fbChan          = fbChannel_Callback([], [], handles);
+REC.specplotrange   = specPlotRange_Callback([], [], handles);
+REC.band1range      = freqband1Range_Callback([], [], handles);
+REC.band1name       = freqband1Name_Callback([], [], handles);
+REC.band2range      = freqband2Range_Callback([], [], handles);
+REC.band2name       = freqband2Name_Callback([], [], handles);
+% translate recording and feedback time-windows to samples
+if isfield(REC,'Fs')
+    REC.samples         = REC.time * REC.Fs; % duration of recording in samples
+    REC.fbSamples       = round(REC.fbTime*REC.Fs); % sample window used for feedback
+end
+handles.REC = REC;
+
 
 % --- Executes on button press in loadSong.
 function loadSong_Callback(hObject, eventdata, handles)
@@ -427,6 +445,14 @@ if songName
         return
     else
         [y, Fs] = audioread([songPath, songName]);
+        songDuration = size(y,1)/Fs ;
+        repeats = ceil(handles.REC.time / songDuration);
+        y = repmat(y,repeats,1);
+        fprintf([...
+            'The song loaded is %s and has a duration of %2.2f sec (or %2.2f min). \n' ...
+            'It will be played %d times to match the session duration of %d sec\n' ...
+            ], ...
+            songName, songDuration, songDuration/60, repeats, handles.REC.time);
         handles.song = audioplayer(y,Fs);
         guidata(hObject, handles)
     end
