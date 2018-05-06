@@ -61,6 +61,7 @@ addpath([cd filesep 'Data'])
 addpath([cd filesep 'Functions'])
 handles = getSettings(handles);
 [~, handles] = initiatePlots(handles);
+enableSettings(handles, 1)
 
 guidata(hObject, handles);
 
@@ -113,8 +114,15 @@ end
 
 % --- Executes on selection change in fbChannel.
 function fbChannel = fbChannel_Callback(hObject, eventdata, handles)
-fbChannel = get(handles.fbChannel, 'Value');
-
+if isfield(handles,'REC');  fbChannel = handles.REC.fbChan; end
+chan = get(handles.fbChannel, 'String');
+if ~isempty(chan) && isnumeric(eval([ '[' chan ']' ]))
+    if isfield(handles, 'ai') && ~(length(handles.ai.Channel) < max(eval([ '[' chan ']' ])))
+        fbChannel = eval([ '[' chan ']' ]);
+    elseif ~isfield(handles, 'ai') 
+        fbChannel = eval([ '[' chan ']' ]);
+    end
+end
 % --- Executes during object creation, after setting all properties.
 function fbChannel_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
@@ -234,7 +242,7 @@ function startSession_Callback(hObject, eventdata, handles)
 global stoprec
 stoprec = 0;
 try
-    handles.startSession.Enable = 'off';
+    enableSettings(handles, 0)
     clc    
     %% If no recording hardware is connected try to connect
     if ~isfield(handles, 'ai')
@@ -244,14 +252,15 @@ try
     ai = handles.ai;
     if isempty(ai)
         fprintf('No recording hardware detected, no session started \n')
+        handles.startSession.Enable = 'on';
         return
     end
     
     %% Get recording settings from GUI
     handles = getSettings(handles);
     Fs  = handles.REC.Fs;
-    handles.REC.threshold.abs   = 250;
-    handles.REC.threshold.peak  = 200;
+    handles.REC.threshold.abs   = 500;
+    handles.REC.threshold.peak  = 500;
     handles.REC.threshold.SNR   = 1;
     REC = handles.REC;
     guidata(hObject, handles);
@@ -271,7 +280,6 @@ try
     relPow  = [];
     looptime = [];
     player  = 0;
-    
     %% get song
     if isfield(handles,'song')
         song = handles.song;
@@ -289,51 +297,59 @@ try
 
     %% start session
     try
-        set(ai,'SamplesPerTrigger',REC.samples);
+        set(ai,'SamplesPerTrigger',Inf);
         % Start recording
+        warmupTime = 0;
         start(ai); tic;
         % Wait for enough samples to calculate power
         fprintf('Wait for enough samples to calculate power \n')
         hwait = waitbar(0,'Getting data..');
         while ai.SamplesAcquired <= REC.fbSamples && stoprec == 0;
             waitbar(mod(ai.SamplesAcquired,REC.Fs)/REC.Fs ,hwait);
+            warmupTime = ai.SamplesAcquired;
         end
         fbdata = peekdata(ai, REC.fbSamples)*1e6;
-        while (ai.SamplesAcquired < REC.samples) ... % until session ends
+        while stoprec ==0 && (strcmp(ai.Running,'On') && ai.SamplesAcquired < REC.samples) && ai.SamplesAcquired < 2560 ... % until session ends
                 && (  ...
                     any(any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs)) ... % check absolute threshold
                     || ...
                     any(any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak))... % check peak-to-peak threshold
                     )
             fbdata = peekdata(ai, REC.fbSamples)*1e6;
-            waitbar(mod(ai.SamplesAcquired,REC.fbSamples)/REC.Fs, hwait, 'waiting for good signal')
+            waitbar(mod(ai.SamplesAcquired,REC.fbSamples)/REC.fbSamples, hwait, 'waiting for good signal')
+            warmupTime = ai.SamplesAcquired;
+            REC.fbChan
+        end
+        if ai.SamplesAcquired >= REC.samples || ai.SamplesAcquired >= 2560
+            stopSession_Callback
+            msgbox('The signal seems to be too bad for the feedback protocol. Either improve the signal or adjust the threshold settings')
         end
         delete(hwait);
         fprintf('Running... \n')
         % Start recording until time elapsed or figure closed
         tic
         if isfield(handles,'song'); play(handles.song); end
-        while stoprec == 0  && ai.SamplesAcquired < REC.samples && strcmp(ai.Running, 'On')
-            handles = getSettings(handles);
+        while stoprec == 0  && (ai.SamplesAcquired - warmupTime ) < REC.samples && strcmp(ai.Running, 'On')
+            handles = getSettings(handles); REC = handles.REC;
             alldata = peekdata(ai, ai.SamplesAcquired)*1e6;
             meanPxx = pwelch(bsxfun(@minus,alldata,mean(alldata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
             fbdata = peekdata(ai, REC.fbSamples)*1e6;
             [Pxx, F] = pwelch(bsxfun(@minus,fbdata,mean(fbdata,1)),REC.fbSamples,round(REC.fbSamples/2),REC.specplotrange,Fs);
-            band1.power = [band1.power; bandpower(fbdata,Fs, band1.range)];
-            band2.power = [band2.power; bandpower(fbdata,Fs, band2.range)];
+            band1.power = [band1.power; bandpower(fbdata,Fs, REC.band1range)];
+            band2.power = [band2.power; bandpower(fbdata,Fs, REC.band2range)];
             band1.mean  = [band1.mean; mean(mean(band1.power(:,REC.fbChan),1),2) ];
             band2.mean  = [band2.mean; mean(mean(band2.power(:,REC.fbChan),1),2) ];
             
             
             ratio = mean(band1.power(:,REC.fbChan),2)./mean(band2.power(:,REC.fbChan),2);
             ratioMean = [ ratioMean ; mean(ratio) ] ;
-            minPow = min(ratio(:,REC.fbChan));
-            maxPow = max(ratio(:,REC.fbChan));
+            minPow = min(ratio);
+            maxPow = max(ratio);
             if any(any(abs(fbdata(:,REC.fbChan)) > REC.threshold.abs)) ... % check absolute threshold
                     || any(any(abs(diff(fbdata(:,REC.fbChan))) > REC.threshold.peak)) % check peak-to-peak threshold
                 relPow =[relPow relPow(end)];
             else
-                relPow = [relPow ((ratio(end,REC.fbChan) -minPow) / (maxPow - minPow))];
+                relPow = [relPow ((ratio(end) -minPow) / (maxPow - minPow))];
             end
             looptime = [looptime toc];
             
@@ -341,17 +357,18 @@ try
             dispTime = 5;          % plot last x seconds of data;
             if dispTime*Fs > size(alldata,1) ; dispTime = REC.fbTime; end
             dispData = alldata(end-(REC.Fs*dispTime-1):end,REC.fbChan)';
-            dispData = dispData -mean(dispData);
-            set(plots.time,         'XData',(1:length(dispData))/Fs,'YData',dispData);
-            set(plots.spec,         'XData',F,'YData',Pxx(:,REC.fbChan));
-            set(plots.meanspec,     'XData',F,'YData',meanPxx(:,REC.fbChan));
-            set(plots.band1,        'XData',looptime+REC.fbTime,'YData',band1.power(:,REC.fbChan));
-            set(plots.band1mean,    'XData',looptime+REC.fbTime,'YData',band1.mean(:,REC.fbChan));
-            set(plots.band2,        'XData',looptime+REC.fbTime,'YData',band2.power(:,REC.fbChan));
-            set(plots.band2mean,    'XData',looptime+REC.fbTime,'YData',band2.mean(:,REC.fbChan));
-            set(plots.ratio,        'XData',looptime+REC.fbTime,'YData',ratio(:,REC.fbChan));
-            set(plots.ratiomean,    'XData',looptime+REC.fbTime,'YData',ratioMean);
-            set(plots.output,       'XData',looptime+REC.fbTime,'YData',relPow);
+%             dispData = dispData - mean(dispData);
+            dispData = bsxfun(@minus, dispData, mean(dispData));
+            set(plots.time,         'XData',(1:length(dispData))/Fs,'YData',dispData(1,:));
+            set(plots.spec,         'XData',F,'YData',mean(Pxx(:,REC.fbChan),2));
+            set(plots.meanspec,     'XData',F,'YData',mean(meanPxx(:,REC.fbChan),2));
+            set(plots.band1,        'XData',looptime,'YData',mean(band1.power(:,REC.fbChan),2));
+            set(plots.band1mean,    'XData',looptime,'YData',band1.mean);
+            set(plots.band2,        'XData',looptime,'YData',mean(band2.power(:,REC.fbChan),2));
+            set(plots.band2mean,    'XData',looptime,'YData',band2.mean);
+            set(plots.ratio,        'XData',looptime,'YData',ratio);
+            set(plots.ratiomean,    'XData',looptime,'YData',ratioMean);
+            set(plots.output,       'XData',looptime,'YData',relPow);
             drawnow;
             player = playNoise(1-relPow(end), mean(diff(looptime))*1.5);
         end
@@ -389,6 +406,7 @@ try
         nfb.power.minPow   = minPow;
         nfb.power.maxPow   = maxPow;
         nfb.power.relPow   = relPow;
+        nfb.ai             = ai;
         guidata(hObject, handles);
         assignin('base','nfb',nfb);
         %% Ask user whether to save data or not
@@ -399,14 +417,14 @@ try
                 fprintf('Data saved \n')
             end
         end
-        handles.startSession.Enable = 'on';
+        enableSettings(handles, 1)
         fprintf('Done!\n')
     catch ME
         errordlg('Some unexpected error ocurred, see command window for more details')
         rethrow(ME)
     end
 catch ME
-    handles.startSession.Enable = 'on';
+    enableSettings(handles, 1)
     errordlg('Some unexpected error ocurred, see command window for more details')
     rethrow(ME)
 end
